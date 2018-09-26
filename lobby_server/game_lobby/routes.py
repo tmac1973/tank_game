@@ -33,12 +33,25 @@ def token_required(f):
 
     return decorated
 
+
 @app.route("/")
+
 
 @app.route("/get_my_ip", methods=["GET"])
 @token_required
 def get_my_ip(current_user):
     return jsonify({'ip': request.remote_addr}), 200
+
+
+@app.route("/ban", methods=["DELETE"])
+@token_required
+def clear_ban_list(current_user):
+    if not current_user.admin:
+        return jsonify({'message' : 'You do not have permission to perform that function'})
+    BanList.query.delete()
+    print(BanList.query.all())
+    return jsonify({'message': 'Banlist cleared'}), 200
+
 
 @app.route('/user', methods=['GET'])
 @token_required
@@ -57,17 +70,19 @@ def get_all_users(current_user):
         output.append(user_data)
     return jsonify({'users':output}),200
 
+
 @app.route('/user', methods=['POST'])
 def create_user():
+    print(BanList.query.all())
     ban = BanList.query.filter_by(ip=request.remote_addr).first()
+    print(ban.count)
     if ban:
-        if (ban.count > 0) and (datetime.timedelta(ban.last_access_date,dattime.datetime.utcnow()).total_seconds() < 300 ):
-            ban.count =+ 1
+        if (ban.count > 0) and ((datetime.datetime.utcnow()-ban.last_access_date).total_seconds() < 300 ):
+            ban.count += 1
             ban.last_access_date = datetime.datetime.utcnow()
             db.session.commit()
             return jsonify({'message' : 'Too many creation attempts'}),400
     data = request.get_json()
-    print (data)
     if  len(data['password']) < PASSWORD_LENGTH:
         logging.debug('New user %s create failed, password too short', data['name'])
         return jsonify({'message': 'Password too short'}), 400
@@ -82,15 +97,19 @@ def create_user():
         new_user = User(public_id=str(uuid.uuid4()), name=data['name'], email=data['email'], password=hashed_password, admin=False)
         db.session.add(new_user)
         if ban:
-            ban.count = + 1
+            ban.count += 1
             ban.last_access_date = datetime.datetime.utcnow()
+            db.session.commit()
         else:
             new_ban = BanList(ip=request.remote_addr, count=1)
-        db.session.commit()
+            db.session.add(new_ban)
+            db.session.commit()
+
     except:
         logging.debug('User Create Failed: %s %s', data['name'], data['email'])
         return jsonify({'message': 'User Create Failed, name and email must not be registered already'}), 500
     return jsonify({'message': 'OK'}), 200
+
 
 @app.route('/user/<public_id>', methods=['GET'])
 @token_required
@@ -122,6 +141,7 @@ def promote_user(current_user, public_id):
 
     return jsonify({'message': 'User Promoted'}), 200
 
+
 @app.route('/user/<public_id>', methods=['DELETE'])
 @token_required
 def delete_user(current_user, public_id):
@@ -136,6 +156,7 @@ def delete_user(current_user, public_id):
     db.session.commit()
 
     return jsonify({'message': 'User Deleted'}), 200
+
 
 @app.route('/login', methods=['GET'])
 def login():
